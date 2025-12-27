@@ -10,6 +10,8 @@ import {
 } from '@/components/ui/card';
 import { Icon } from '@/components/ui/icon';
 import useBLE from '@/hooks/useBLE';
+import { useMediaListener } from '@/hooks/useMediaListener';
+import { Link } from 'expo-router';
 import { Bluetooth, BluetoothSearching } from 'lucide-react-native';
 import * as React from 'react';
 import { Text, View } from 'react-native';
@@ -18,6 +20,8 @@ export default function Screen() {
   const [isScanning, setIsScanning] = React.useState<boolean>(false);
 
   const { scanForPeripherals, requestPermissions, allDevices } = useBLE();
+  const { mediaData, hasPermission, isChecking, error, openSettings, recheckPermission } =
+    useMediaListener();
 
   const scanForDevices = async () => {
     const isPermissionsEnabled = await requestPermissions();
@@ -77,6 +81,10 @@ export default function Screen() {
               </CardFooter>
             </Card>
           )}
+
+          <Link href="/media" className="mt-6 self-center">
+            <Text className="text-blue-500 underline">Go to Media Screen</Text>
+          </Link>
         </View>
       </View>
     </>
