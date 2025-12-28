@@ -88,13 +88,6 @@ export function useMediaListener(): MediaListenerApi {
       if (data.title || data.package) {
         setMediaData(data);
         setLastUpdate(Date.now());
-        console.log('📻 Media Update:', {
-          title: data.title,
-          artist: data.artist,
-          isPlaying: data.isPlaying,
-          position: data.position,
-          duration: data.duration,
-        });
       } else {
         // No media playing
         setMediaData(null);
