@@ -1,3 +1,4 @@
+import { BLEProvider } from '@/contexts/BleContext';
 import '@/global.css';
 
 import { NAV_THEME } from '@/lib/theme';
@@ -18,7 +19,9 @@ export default function RootLayout() {
   return (
     <ThemeProvider value={NAV_THEME[colorScheme ?? 'light']}>
       <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} />
-      <Stack screenOptions={{ headerShown: false }} />
+      <BLEProvider>
+        <Stack screenOptions={{ headerShown: false }} />
+      </BLEProvider>
       <PortalHost />
     </ThemeProvider>
   );

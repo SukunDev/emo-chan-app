@@ -1,13 +1,13 @@
 /* eslint-disable no-bitwise */
 import { useMemo, useState } from 'react';
 import { PermissionsAndroid, Platform } from 'react-native';
-import { BleError, BleManager, Characteristic, Device } from 'react-native-ble-plx';
+import { BleError, BleErrorCode, BleManager, Characteristic, Device } from 'react-native-ble-plx';
 
 import * as ExpoDevice from 'expo-device';
 
 import base64 from 'react-native-base64';
 
-interface BluetoothLowEnergyApi {
+export interface BluetoothLowEnergyApi {
   requestPermissions(): Promise<boolean>;
   scanForPeripherals(): void;
   connectToDevice: (deviceId: Device) => Promise<void>;
@@ -16,12 +16,14 @@ interface BluetoothLowEnergyApi {
   sendJson: (json: Record<string, any>) => Promise<void>;
   connectedDevice: Device | null;
   allDevices: Device[];
+  isScanning: boolean;
 }
 
 function useBLE(): BluetoothLowEnergyApi {
   const bleManager = useMemo(() => new BleManager(), []);
   const [allDevices, setAllDevices] = useState<Device[]>([]);
   const [connectedDevice, setConnectedDevice] = useState<Device | null>(null);
+  const [isScanning, setIsScanning] = useState<boolean>(false);
 
   const requestAndroid31Permissions = async () => {
     const bluetoothScanPermission = await PermissionsAndroid.request(
@@ -83,8 +85,16 @@ function useBLE(): BluetoothLowEnergyApi {
 
   const scanForPeripherals = () =>
     bleManager.startDeviceScan(null, null, (error, device) => {
+      setIsScanning(true);
       if (error) {
-        console.log(error);
+        if (error instanceof BleError) {
+          // Handle error (scanning will be stopped automatically)
+          console.log(`BleError: ${error.message}, code: ${error.errorCode}`);
+          if (error.errorCode === BleErrorCode.BluetoothPoweredOff) {
+            console.log('Please turn on Bluetooth');
+          }
+        }
+        setIsScanning(false);
       }
       if (device) {
         setAllDevices((prevState: Device[]) => {
@@ -102,6 +112,7 @@ function useBLE(): BluetoothLowEnergyApi {
       setConnectedDevice(deviceConnection);
       await deviceConnection.discoverAllServicesAndCharacteristics();
       bleManager.stopDeviceScan();
+      setIsScanning(false);
     } catch (e) {
       console.log('FAILED TO CONNECT', e);
     }
@@ -167,11 +178,12 @@ function useBLE(): BluetoothLowEnergyApi {
   };
 
   return {
+    allDevices,
+    connectedDevice,
+    isScanning,
     scanForPeripherals,
     requestPermissions,
     connectToDevice,
-    allDevices,
-    connectedDevice,
     disconnectFromDevice,
     sendDataAuto,
     sendJson,

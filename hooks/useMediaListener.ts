@@ -22,7 +22,17 @@ interface MediaData {
   timestamp?: number; // ✅ Timestamp update
 }
 
-export function useMediaListener() {
+export interface MediaListenerApi {
+  mediaData: MediaData | null;
+  hasPermission: boolean;
+  isChecking: boolean;
+  error: string | null;
+  lastUpdate: number;
+  openSettings: () => Promise<void>;
+  recheckPermission: () => Promise<void>;
+}
+
+export function useMediaListener(): MediaListenerApi {
   const [mediaData, setMediaData] = useState<MediaData | null>(null);
   const [hasPermission, setHasPermission] = useState<boolean>(false);
   const [isChecking, setIsChecking] = useState<boolean>(true);
