@@ -4,7 +4,15 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Icon } from '@/components/ui/icon';
 import { useBLEContext } from '@/contexts/BleContext';
-import { Bluetooth, BluetoothSearching, Loader } from 'lucide-react-native';
+import {
+  Bluetooth,
+  BluetoothSearching,
+  Cog,
+  Gamepad,
+  InfoIcon,
+  Loader,
+  Wifi,
+} from 'lucide-react-native';
 import * as React from 'react';
 import { ScrollView, Text, View, Alert } from 'react-native';
 import type { BLEDevice } from '@/hooks/useNativeBLE';
@@ -72,10 +80,10 @@ export default function Screen() {
   };
 
   return (
-    <View className="flex-1 items-center justify-center bg-background p-4">
+    <View className="items-center justify-center flex-1 p-4 bg-background">
       {connectedDevice && (
         <>
-          <View className="mt-14 w-full">
+          <View className="w-full mt-14">
             <View className="flex-row items-center justify-between">
               <Text className="text-sm text-gray-400">Connected</Text>
               <View className="flex-row items-center gap-2">
@@ -86,15 +94,24 @@ export default function Screen() {
             </View>
           </View>
 
-          <View className="mt-6 w-full flex-1 gap-6">
+          <View className="flex-1 w-full gap-6 mt-6">
             <MediaPlayer />
             <View className="flex-row gap-6">
-              <Button className="h-36 flex-1 bg-[#111]">
-                <Text className="font-bold text-white">Read Data</Text>
+              <Button className="h-36 flex-1 bg-[#111] active:scale-105 active:bg-white/30">
+                <Icon as={Gamepad} size={32} className="text-white" />
               </Button>
 
-              <Button className="h-36 flex-1 bg-[#111]">
-                <Text className="font-bold text-white">Write Data</Text>
+              <Button className="h-36 flex-1 bg-[#111] active:scale-105 active:bg-white/30">
+                <Icon as={Wifi} size={32} className="text-white" />
+              </Button>
+            </View>
+            <View className="flex-row gap-6">
+              <Button className="h-36 flex-1 bg-[#111] active:scale-105 active:bg-white/30">
+                <Icon as={Cog} size={32} className="text-white" />
+              </Button>
+
+              <Button className="h-36 flex-1 bg-[#111] active:scale-105 active:bg-white/30">
+                <Icon as={InfoIcon} size={32} className="text-white" />
               </Button>
             </View>
           </View>
@@ -105,7 +122,7 @@ export default function Screen() {
       {!connectedDevice && (
         <>
           <View className="py-10">
-            <View className="relative h-48 w-48 items-center justify-center">
+            <View className="relative items-center justify-center w-48 h-48">
               <PulseLayer delay={0} baseOpacity={0.25} />
               <PulseLayer delay={400} baseOpacity={0.25} />
               <PulseLayer delay={800} baseOpacity={0.25} />
@@ -113,7 +130,7 @@ export default function Screen() {
               <Button
                 onPress={scanForDevices}
                 disabled={isScanning}
-                className="h-48 w-48 rounded-full bg-card">
+                className="w-48 h-48 rounded-full bg-card">
                 <Icon
                   className="text-blue-500"
                   as={isScanning ? BluetoothSearching : Bluetooth}
@@ -126,17 +143,17 @@ export default function Screen() {
           {/* DEVICE LIST */}
           {allDevices.length < 1 ? (
             <View className="items-center gap-4 pt-10">
-              <Text className="text-center text-lg font-medium text-gray-400">
+              <Text className="text-lg font-medium text-center text-gray-400">
                 Turn on the bluetooth connection of this device
               </Text>
 
               <Button
                 onPress={scanForDevices}
                 disabled={isScanning}
-                className="h-12 w-40 rounded-full bg-blue-500">
+                className="w-40 h-12 bg-blue-500 rounded-full">
                 <Text className="font-semibold text-white">SCAN</Text>
                 {isScanning && (
-                  <Icon className="ml-2 animate-spin text-white" as={Loader} size={20} />
+                  <Icon className="ml-2 text-white animate-spin" as={Loader} size={20} />
                 )}
               </Button>
             </View>
@@ -151,7 +168,7 @@ export default function Screen() {
 
                   {isScanning && (
                     <View className="flex-row items-center gap-2">
-                      <Icon className="animate-spin text-blue-500" as={Loader} size={16} />
+                      <Icon className="text-blue-500 animate-spin" as={Loader} size={16} />
                       <Text className="text-xs text-blue-500">Scanning...</Text>
                     </View>
                   )}
@@ -165,7 +182,7 @@ export default function Screen() {
                   {allDevices.map((device) => (
                     <View
                       key={device.id}
-                      className="flex-row items-center justify-between rounded-xl border border-border bg-muted px-4 py-3">
+                      className="flex-row items-center justify-between px-4 py-3 border rounded-xl border-border bg-muted">
                       <View className="flex-1">
                         <Text className="text-base font-semibold text-foreground">
                           {device.name || 'Unknown Device'}
@@ -181,7 +198,7 @@ export default function Screen() {
                       <Button
                         onPress={() => handleConnectToDevice(device)}
                         size="sm"
-                        className="rounded-md bg-blue-500">
+                        className="bg-blue-500 rounded-md">
                         <Text className="text-xs font-semibold text-white">CONNECT</Text>
                       </Button>
                     </View>

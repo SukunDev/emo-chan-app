@@ -2,7 +2,7 @@ import { useAudioListener, AudioListenerApi } from '@/hooks/useAudioListener';
 import useNativeBLE, { NativeBluetoothLowEnergyApi } from '@/hooks/useNativeBLE';
 import { useMediaListener, MediaListenerApi } from '@/hooks/useMediaListener';
 import type React from 'react';
-import { createContext, useCallback, useContext, useEffect, useRef } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { Alert } from 'react-native';
 
 interface BLEContextType {
@@ -39,13 +39,16 @@ export function BLEProvider({ children }: { children: React.ReactNode }) {
     requestPermission,
   } = audioListener;
 
-  // Refs untuk throttling yang lebih agresif
+  // State untuk tracking reconnection
+  const [isReconnecting, setIsReconnecting] = useState(false);
+  const hasCheckedExistingConnection = useRef(false);
+
+  // Refs untuk throttling
   const lastSentTime = useRef<number>(0);
   const isSending = useRef<boolean>(false);
   const lastSentData = useRef<string>('');
 
-  // Throttle interval lebih kecil untuk realtime
-  const throttleInterval = 30; // 30ms = ~33 FPS
+  const throttleInterval = 30;
 
   // Check if BLEModule is available
   useEffect(() => {
@@ -63,6 +66,77 @@ export function BLEProvider({ children }: { children: React.ReactNode }) {
     };
     checkBLEModule();
   }, []);
+
+  // NEW: Check for existing connections when app starts
+  useEffect(() => {
+    const checkExistingConnections = async () => {
+      if (hasCheckedExistingConnection.current) return;
+      hasCheckedExistingConnection.current = true;
+
+      try {
+        const existingConnections = await bleManager.getExistingConnections();
+
+        if (existingConnections.length > 0) {
+          const device = existingConnections[0];
+          console.log('Found existing connection:', device);
+
+          Alert.alert(
+            'Existing Connection Found',
+            `Would you like to reconnect to ${device.name || 'Unknown Device'}?`,
+            [
+              {
+                text: 'No',
+                style: 'cancel',
+              },
+              {
+                text: 'Yes',
+                onPress: async () => {
+                  setIsReconnecting(true);
+                  try {
+                    await bleManager.reconnectToDevice(device.address);
+                    console.log('Successfully reconnected to existing device');
+                  } catch (error) {
+                    console.error('Failed to reconnect:', error);
+                    Alert.alert(
+                      'Reconnection Failed',
+                      'Could not reconnect to the device. Please connect manually.',
+                      [{ text: 'OK' }]
+                    );
+                  } finally {
+                    setIsReconnecting(false);
+                  }
+                },
+              },
+            ]
+          );
+        }
+      } catch (error) {
+        console.error('Error checking existing connections:', error);
+      }
+    };
+
+    checkExistingConnections();
+  }, [bleManager]);
+
+  // NEW: Handle existing connection event from native
+  useEffect(() => {
+    bleManager.onExistingConnection(async (device) => {
+      console.log('Existing connection event received:', device);
+
+      // Auto-reconnect without showing alert (optional)
+      if (!connectedDevice && !isReconnecting) {
+        setIsReconnecting(true);
+        try {
+          await bleManager.reconnectToDevice(device.address);
+          console.log('Auto-reconnected to existing device');
+        } catch (error) {
+          console.error('Auto-reconnect failed:', error);
+        } finally {
+          setIsReconnecting(false);
+        }
+      }
+    });
+  }, [bleManager, connectedDevice, isReconnecting]);
 
   useEffect(() => {
     if (!mediaListenerPermission && !isChecking && mediaListenerError === null) {
@@ -93,7 +167,6 @@ export function BLEProvider({ children }: { children: React.ReactNode }) {
     const now = Date.now();
     const timeSinceLastSent = now - lastSentTime.current;
 
-    // Skip jika belum waktunya atau masih mengirim
     if (timeSinceLastSent < throttleInterval || isSending.current) {
       return;
     }
@@ -113,7 +186,6 @@ export function BLEProvider({ children }: { children: React.ReactNode }) {
 
     const dataString = JSON.stringify(combined);
 
-    // Skip jika data sama dengan yang terakhir dikirim (optimisasi)
     if (dataString === lastSentData.current) {
       return;
     }
@@ -131,7 +203,6 @@ export function BLEProvider({ children }: { children: React.ReactNode }) {
     }
   }, [audioMetrics, mediaData, connectedDevice, sendJson, throttleInterval]);
 
-  // Gunakan interval yang lebih agresif untuk update
   useEffect(() => {
     if (!connectedDevice) return;
 

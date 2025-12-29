@@ -35,17 +35,54 @@ class BLEModule(reactContext: ReactApplicationContext) :
     
     // Konstanta
     companion object {
-        private const val MTU_SIZE = 512 // Request MTU maksimal
-        private const val CHUNK_SIZE = 500 // Ukuran chunk data (lebih kecil dari MTU)
+        private const val MTU_SIZE = 512
+        private const val CHUNK_SIZE = 500
     }
 
     init {
         val bluetoothManager = reactContext.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
         bluetoothAdapter = bluetoothManager.adapter
         bluetoothLeScanner = bluetoothAdapter?.bluetoothLeScanner
+        
+        // Check existing connections on init
+        checkExistingConnections(bluetoothManager)
     }
 
     override fun getName(): String = "BLEModule"
+
+    /**
+     * Check untuk koneksi Bluetooth yang sudah ada
+     */
+    private fun checkExistingConnections(bluetoothManager: BluetoothManager) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                // Dapatkan semua perangkat yang terkoneksi dengan profile GATT
+                val connectedDevices = bluetoothManager.getConnectedDevices(BluetoothProfile.GATT)
+                
+                if (connectedDevices.isNotEmpty()) {
+                    // Ambil device pertama yang terkoneksi
+                    val device = connectedDevices[0]
+                    
+                    // Notify React Native bahwa ada koneksi yang sudah ada
+                    val deviceMap = Arguments.createMap().apply {
+                        putString("id", device.address)
+                        putString("name", device.name ?: "Unknown")
+                        putString("address", device.address)
+                        putBoolean("wasAlreadyConnected", true)
+                    }
+                    
+                    // Kirim event ke React Native
+                    handler.postDelayed({
+                        sendEvent("onExistingConnection", deviceMap)
+                    }, 500) // Delay untuk memastikan React Native sudah siap
+                }
+            }
+        } catch (e: SecurityException) {
+            // Missing permissions
+        } catch (e: Exception) {
+            // Silent error
+        }
+    }
 
     @ReactMethod
     fun isBluetoothEnabled(promise: Promise) {
@@ -73,6 +110,71 @@ class BLEModule(reactContext: ReactApplicationContext) :
         }
     }
 
+    /**
+     * Method baru untuk mendapatkan koneksi yang sudah ada
+     */
+    @ReactMethod
+    fun getExistingConnections(promise: Promise) {
+        try {
+            val context = reactApplicationContext
+            val bluetoothManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
+            
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                val connectedDevices = bluetoothManager.getConnectedDevices(BluetoothProfile.GATT)
+                val deviceList = Arguments.createArray()
+                
+                connectedDevices.forEach { device ->
+                    val deviceMap = Arguments.createMap().apply {
+                        putString("id", device.address)
+                        putString("name", device.name ?: "Unknown")
+                        putString("address", device.address)
+                    }
+                    deviceList.pushMap(deviceMap)
+                }
+                
+                promise.resolve(deviceList)
+            } else {
+                promise.resolve(Arguments.createArray())
+            }
+        } catch (e: SecurityException) {
+            promise.reject("PERMISSION_ERROR", "Missing Bluetooth permissions")
+        } catch (e: Exception) {
+            promise.reject("ERROR", e.message)
+        }
+    }
+
+    /**
+     * Method untuk reconnect ke device yang sudah pernah terkoneksi
+     */
+    @ReactMethod
+    fun reconnectToDevice(deviceAddress: String, promise: Promise) {
+        try {
+            if (bluetoothGatt != null) {
+                promise.reject("ERROR", "Already connected to a device. Disconnect first.")
+                return
+            }
+
+            val device = bluetoothAdapter?.getRemoteDevice(deviceAddress)
+            if (device == null) {
+                promise.reject("ERROR", "Device not found")
+                return
+            }
+
+            connectPromise = promise
+
+            bluetoothGatt = device.connectGatt(
+                reactApplicationContext,
+                false,
+                gattCallback,
+                BluetoothDevice.TRANSPORT_LE
+            )
+        } catch (e: SecurityException) {
+            promise.reject("PERMISSION_ERROR", "Missing Bluetooth permissions")
+        } catch (e: Exception) {
+            promise.reject("ERROR", e.message)
+        }
+    }
+
     @ReactMethod
     fun startScan(promise: Promise) {
         try {
@@ -90,7 +192,6 @@ class BLEModule(reactContext: ReactApplicationContext) :
 
             bluetoothLeScanner?.startScan(null, scanSettings, scanCallback)
             
-            // Auto stop setelah 10 detik
             handler.postDelayed({
                 stopScan()
             }, 10000)
@@ -137,7 +238,8 @@ class BLEModule(reactContext: ReactApplicationContext) :
     @ReactMethod
     fun connect(deviceId: String, promise: Promise) {
         try {
-            val device = devices[deviceId]
+            val device = devices[deviceId] ?: bluetoothAdapter?.getRemoteDevice(deviceId)
+            
             if (device == null) {
                 promise.reject("ERROR", "Device not found")
                 return
@@ -148,7 +250,6 @@ class BLEModule(reactContext: ReactApplicationContext) :
                 return
             }
 
-            // Simpan promise untuk callback nanti
             connectPromise = promise
 
             bluetoothGatt = device.connectGatt(
@@ -195,11 +296,9 @@ class BLEModule(reactContext: ReactApplicationContext) :
 
             val bytes = data.toByteArray(Charsets.UTF_8)
             
-            // Jika data kecil, kirim langsung
             if (bytes.size <= CHUNK_SIZE) {
                 dataQueue.offer(bytes)
             } else {
-                // Split data besar menjadi chunks
                 var offset = 0
                 while (offset < bytes.size) {
                     val end = minOf(offset + CHUNK_SIZE, bytes.size)
@@ -209,7 +308,6 @@ class BLEModule(reactContext: ReactApplicationContext) :
                 }
             }
             
-            // Mulai proses pengiriman jika belum berjalan
             if (!isSending) {
                 processQueue()
             }
@@ -223,9 +321,7 @@ class BLEModule(reactContext: ReactApplicationContext) :
     @ReactMethod
     fun sendJson(json: ReadableMap, promise: Promise) {
         try {
-            // Konversi ReadableMap ke JSONObject secara native
             val jsonObject = convertReadableMapToJson(json)
-            // Dapatkan string JSON tanpa escape tambahan
             val jsonString = jsonObject.toString()
             
             sendData(jsonString, promise)
@@ -271,7 +367,6 @@ class BLEModule(reactContext: ReactApplicationContext) :
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
             when (newState) {
                 BluetoothProfile.STATE_CONNECTED -> {
-                    // Request MTU lebih besar untuk throughput lebih tinggi
                     gatt.requestMtu(MTU_SIZE)
                 }
                 BluetoothProfile.STATE_DISCONNECTED -> {
@@ -291,14 +386,12 @@ class BLEModule(reactContext: ReactApplicationContext) :
 
         override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
             if (status == BluetoothGatt.GATT_SUCCESS) {
-                // MTU berhasil diubah, sekarang discover services
                 gatt.discoverServices()
             }
         }
 
         override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
             if (status == BluetoothGatt.GATT_SUCCESS) {
-                // Cari characteristic yang writable
                 for (service in gatt.services) {
                     for (characteristic in service.characteristics) {
                         val isWritable = (characteristic.properties and 
@@ -308,7 +401,6 @@ class BLEModule(reactContext: ReactApplicationContext) :
                         if (isWritable) {
                             writeCharacteristic = characteristic
                             
-                            // Set write type sesuai dengan property characteristic
                             if ((characteristic.properties and BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE) != 0) {
                                 characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
                             } else {
@@ -341,7 +433,6 @@ class BLEModule(reactContext: ReactApplicationContext) :
             characteristic: BluetoothGattCharacteristic,
             status: Int
         ) {
-            // Tulis selesai, lanjutkan dengan data berikutnya
             isSending = false
             processQueue()
         }
@@ -366,14 +457,12 @@ class BLEModule(reactContext: ReactApplicationContext) :
 
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                // Android 13+
                 gatt.writeCharacteristic(
                     characteristic,
                     data,
                     characteristic.writeType
                 )
             } else {
-                // Android < 13
                 @Suppress("DEPRECATION")
                 characteristic.value = data
                 @Suppress("DEPRECATION")
@@ -381,16 +470,12 @@ class BLEModule(reactContext: ReactApplicationContext) :
             }
         } catch (e: Exception) {
             isSending = false
-            // Retry dengan delay kecil
             sendHandler.postDelayed({
                 processQueue()
             }, 10)
         }
     }
 
-    /**
-     * Konversi ReadableMap ke JSONObject tanpa double-escaping
-     */
     private fun convertReadableMapToJson(readableMap: ReadableMap): JSONObject {
         val json = JSONObject()
         val iterator = readableMap.keySetIterator()
@@ -418,9 +503,6 @@ class BLEModule(reactContext: ReactApplicationContext) :
         return json
     }
 
-    /**
-     * Konversi ReadableArray ke JSONArray
-     */
     private fun convertReadableArrayToJson(readableArray: ReadableArray): JSONArray {
         val array = JSONArray()
         

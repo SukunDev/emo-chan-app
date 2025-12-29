@@ -3,7 +3,6 @@ import { NativeModules, NativeEventEmitter, PermissionsAndroid, Platform } from 
 
 const { BLEModule } = NativeModules;
 
-// Check if BLEModule is available
 if (!BLEModule) {
   console.error(
     'BLEModule is not available. Make sure you have added BLEPackage to MainApplication.'
@@ -17,6 +16,7 @@ export interface BLEDevice {
   name: string;
   address: string;
   rssi?: number;
+  wasAlreadyConnected?: boolean;
 }
 
 export interface ConnectedDeviceInfo {
@@ -36,7 +36,9 @@ export interface NativeBluetoothLowEnergyApi {
   stopScan(): Promise<void>;
   getScannedDevices(): Promise<BLEDevice[]>;
 
-  // Connection
+  // Connection - NEW METHODS
+  getExistingConnections(): Promise<BLEDevice[]>;
+  reconnectToDevice(deviceAddress: string): Promise<ConnectedDeviceInfo>;
   connect(deviceId: string): Promise<ConnectedDeviceInfo>;
   disconnect(): Promise<void>;
   isConnected(): Promise<boolean>;
@@ -55,6 +57,7 @@ export interface NativeBluetoothLowEnergyApi {
   onDeviceFound(callback: (device: BLEDevice) => void): void;
   onConnected(callback: (device: ConnectedDeviceInfo) => void): void;
   onDisconnected(callback: () => void): void;
+  onExistingConnection(callback: (device: BLEDevice) => void): void;
 }
 
 export function useNativeBLE(): NativeBluetoothLowEnergyApi {
@@ -65,6 +68,7 @@ export function useNativeBLE(): NativeBluetoothLowEnergyApi {
   const onDeviceFoundCallback = useRef<((device: BLEDevice) => void) | null>(null);
   const onConnectedCallback = useRef<((device: ConnectedDeviceInfo) => void) | null>(null);
   const onDisconnectedCallback = useRef<(() => void) | null>(null);
+  const onExistingConnectionCallback = useRef<((device: BLEDevice) => void) | null>(null);
 
   // Request permissions
   const requestPermissions = async (): Promise<boolean> => {
@@ -108,6 +112,34 @@ export function useNativeBLE(): NativeBluetoothLowEnergyApi {
     } catch (error) {
       console.error('Error checking bluetooth:', error);
       return false;
+    }
+  };
+
+  // NEW: Get existing connections
+  const getExistingConnections = async (): Promise<BLEDevice[]> => {
+    if (!BLEModule) return [];
+
+    try {
+      return await BLEModule.getExistingConnections();
+    } catch (error) {
+      console.error('Error getting existing connections:', error);
+      return [];
+    }
+  };
+
+  // NEW: Reconnect to a device using its address
+  const reconnectToDevice = async (deviceAddress: string): Promise<ConnectedDeviceInfo> => {
+    if (!BLEModule) {
+      throw new Error('BLEModule not available');
+    }
+
+    try {
+      const deviceInfo = await BLEModule.reconnectToDevice(deviceAddress);
+      setConnectedDevice(deviceInfo);
+      return deviceInfo;
+    } catch (error) {
+      console.error('Error reconnecting:', error);
+      throw error;
     }
   };
 
@@ -269,11 +301,24 @@ export function useNativeBLE(): NativeBluetoothLowEnergyApi {
       setIsScanning(false);
     });
 
+    // NEW: Listen for existing connections
+    const existingConnectionSub = bleEmitter.addListener(
+      'onExistingConnection',
+      (device: BLEDevice) => {
+        console.log('Existing connection detected:', device);
+
+        if (onExistingConnectionCallback.current) {
+          onExistingConnectionCallback.current(device);
+        }
+      }
+    );
+
     return () => {
       deviceFoundSub.remove();
       connectedSub.remove();
       disconnectedSub.remove();
       scanErrorSub.remove();
+      existingConnectionSub.remove();
     };
   }, []);
 
@@ -290,6 +335,11 @@ export function useNativeBLE(): NativeBluetoothLowEnergyApi {
     onDisconnectedCallback.current = callback;
   }, []);
 
+  // NEW: Callback for existing connection
+  const onExistingConnection = useCallback((callback: (device: BLEDevice) => void) => {
+    onExistingConnectionCallback.current = callback;
+  }, []);
+
   return {
     // Methods
     requestPermissions,
@@ -297,6 +347,8 @@ export function useNativeBLE(): NativeBluetoothLowEnergyApi {
     startScan,
     stopScan,
     getScannedDevices,
+    getExistingConnections,
+    reconnectToDevice,
     connect,
     disconnect,
     isConnected,
@@ -313,8 +365,8 @@ export function useNativeBLE(): NativeBluetoothLowEnergyApi {
     onDeviceFound,
     onConnected,
     onDisconnected,
+    onExistingConnection,
   };
 }
 
-// Default export
 export default useNativeBLE;
